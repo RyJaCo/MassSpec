@@ -51,7 +51,15 @@ Protein.Group  Protein.Ids  ...  Stripped.Sequence  Modified.Sequence  Precursor
 - Charge states and modified forms of the same sequence are **summed** per run.
 - Detected peptides are matched to the protein by sequence, so the file can contain the whole proteome. Only peptides found in the selected protein are used.
 
-Other wide peptide tables also work if they have a sequence column (`Sequence`, `PEP.StrippedSequence`, `EG.StrippedSequence`, …) and one intensity column per sample. For MaxQuant `peptides.txt`, the `Intensity <sample>` (or `LFQ intensity <sample>`) columns are picked automatically. Tab-, comma- and semicolon-separated files are accepted, and large files are streamed.
+Other wide peptide tables also work if they have a sequence column (`Sequence`, `PEP.StrippedSequence`, `EG.StrippedSequence`, …) and one intensity column per sample. For MaxQuant `peptides.txt`, the `Intensity <sample>` (or `LFQ intensity <sample>`) columns are picked automatically. **CSV is supported** as well as TSV. The separator (tab, comma or semicolon) is detected from the header row, so a `pr_matrix` opened and re-saved from Excel works. This includes:
+
+- quoted cells, such as protein descriptions containing commas
+- thousands separators (`1,234,567`)
+- European-locale files that use `;` with decimal commas (`1234,5`) and a leading `sep=;` line
+- Excel error cells (`#N/A`), which count as missing
+- column names in any case or punctuation (`stripped_sequence` matches `Stripped.Sequence`)
+
+Large files are streamed.
 
 ## Simplifications
 

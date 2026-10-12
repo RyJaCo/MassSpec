@@ -15,8 +15,8 @@
   const PROTEIN_COLUMNS = ['Protein.Group', 'Protein.Ids', 'Proteins', 'Leading razor protein', 'PG.ProteinGroups'];
 
   // Numeric columns that are annotations, not per-run quantities.
-  const NOT_A_RUN = /^(precursor\.charge|charge|proteotypic|precursor\.lib\.index|.*\bindex|length|mass|missed cleavages|start position|end position|score|pep|q\.?value|.*\bq\.?value|id|unique.*|count.*|.*\bcount|retention.*|rt|msms.*|ms\/ms.*|.*\bids?)$/i;
-  const MISSING = /^(|na|nan|n\/a|null|none|filtered|-)$/i;
+  const NOT_A_RUN = /^(protein\.group|protein\.ids|protein\.names|genes|first\.protein\.description|modified\.sequence|stripped\.sequence|precursor\.id|precursor\.charge|charge|proteotypic|precursor\.lib\.index|.*\bindex|length|mass|missed cleavages|start position|end position|score|pep|q\.?value|.*\bq\.?value|id|unique.*|count.*|.*\bcount|retention.*|rt|msms.*|ms\/ms.*|.*\bids?)$/i;
+  const MISSING = /^(|na|nan|n\/a|#n\/a|#value!|#div\/0!|#num!|null|none|filtered|-)$/i;
   const SNIFF_ROWS = 500;
 
   /** "_(UniMod:1)AC(UniMod:4)DEK2" or "PEP[+16.0]TIDE" -> "ACDEK" / "PEPTIDE". */
@@ -48,6 +48,38 @@
     return out;
   }
 
+  // Delimiter with the most occurrences outside quotes in the header line.
+  function sniffDelimiter(line) {
+    const counts = { '\t': 0, ',': 0, ';': 0 };
+    let q = false;
+    for (const c of line) {
+      if (c === '"') q = !q;
+      else if (!q && c in counts) counts[c]++;
+    }
+    const best = Object.keys(counts).reduce((a, b) => (counts[b] > counts[a] ? b : a), '\t');
+    return counts[best] ? best : '\t';
+  }
+
+  // Header names compared without case or punctuation: "Stripped.Sequence" == "stripped_sequence".
+  const simplify = (h) => h.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  /**
+   * Number from a table cell, tolerating spreadsheet formatting: "1,234,567", "1 234 567",
+   * and decimal commas ("1234,5", "1.234.567,8") in semicolon-separated files.
+   */
+  function parseNumber(raw, decimalComma) {
+    let v = String(raw).trim();
+    if (MISSING.test(v)) return NaN;
+    v = v.replace(/[\s\u00a0\u202f']/g, '');
+    if (decimalComma) {
+      if (/^-?\d{1,3}(\.\d{3})+(,\d*)?$/.test(v)) v = v.replace(/\./g, '');
+      v = v.replace(',', '.');
+    } else if (/^-?\d{1,3}(,\d{3})+(\.\d*)?([eE][-+]?\d+)?$/.test(v)) {
+      v = v.replace(/,/g, '');
+    }
+    return v === '' ? NaN : Number(v);
+  }
+
   function shortRunName(col) {
     const base = col.split(/[\\/]/).pop();
     return base.replace(/\.(raw|d|wiff2?|mzml|dia|htrms)$/i, '') || col;
@@ -60,7 +92,8 @@
    */
   function createParser() {
     let header = null;
-    let delim = '\t';
+    let delim = null;
+    let decimalComma = false;
     let seqIdx = -1;
     let protIdx = -1;
     let runIdx = [];
@@ -72,18 +105,20 @@
     const peptides = new Map();
 
     function setupHeader(line) {
-      delim = line.includes('\t') ? '\t' : line.includes(',') ? ',' : ';';
+      delim = delim || sniffDelimiter(line);
       header = splitLine(line, delim).map((h) => h.trim().replace(/^"|"$/g, ''));
+      const simple = header.map(simplify);
       for (const name of SEQUENCE_COLUMNS) {
-        const i = header.indexOf(name);
-        if (i >= 0) { seqIdx = i; sequenceColumn = name; break; }
+        const i = simple.indexOf(simplify(name));
+        if (i >= 0) { seqIdx = i; sequenceColumn = header[i]; break; }
       }
       if (seqIdx < 0) {
         throw new Error('No peptide sequence column found. Expected one of: ' +
-          SEQUENCE_COLUMNS.join(', ') + '.');
+          SEQUENCE_COLUMNS.join(', ') + '. Columns in this file: ' +
+          header.slice(0, 12).join(', ') + (header.length > 12 ? ', …' : '') + '.');
       }
       for (const name of PROTEIN_COLUMNS) {
-        const i = header.indexOf(name);
+        const i = simple.indexOf(simplify(name));
         if (i >= 0) { protIdx = i; break; }
       }
     }
@@ -91,15 +126,16 @@
     // Decide which columns hold per-run quantities by looking at the first rows.
     function chooseRunColumns() {
       const sample = buffer.map((l) => splitLine(l, delim));
+      // Semicolon files from European-locale spreadsheets use decimal commas.
+      decimalComma = delim === ';' && sample.some((cells) => cells.some((c) => /^\s*-?[\d.\s]*\d,\d+\s*$/.test(c)));
+      // Numeric, or empty throughout the sample (a run with few identifications).
       const isNumericCol = (i) => {
-        let seen = 0;
         for (const cells of sample) {
           const v = (cells[i] || '').trim();
           if (MISSING.test(v)) continue;
-          if (!isFinite(Number(v))) return false;
-          seen++;
+          if (!isFinite(parseNumber(v, decimalComma))) return false;
         }
-        return seen > 0;
+        return true;
       };
       const intensityLike = header
         .map((h, i) => [h, i])
@@ -135,9 +171,7 @@
       }
       entry.precursors++;
       for (let r = 0; r < runIdx.length; r++) {
-        const raw = (cells[runIdx[r]] || '').trim();
-        if (MISSING.test(raw)) continue;
-        const v = Number(raw);
+        const v = parseNumber(cells[runIdx[r]] || '', decimalComma);
         if (!isFinite(v) || v <= 0) continue;
         entry.values[r] = isNaN(entry.values[r]) ? v : entry.values[r] + v;
       }
@@ -147,8 +181,12 @@
       push(line) {
         if (line.endsWith('\r')) line = line.slice(0, -1);
         if (header === null) {
+          line = line.replace(/^\uFEFF/, '');
           if (!line.trim()) return;
-          setupHeader(line.replace(/^﻿/, ''));
+          // Excel sometimes writes a "sep=;" line before the header.
+          const sep = line.match(/^"?sep=(.)"?\s*$/i);
+          if (sep) { delim = sep[1]; return; }
+          setupHeader(line);
           return;
         }
         if (!line.trim()) return;
@@ -214,7 +252,7 @@
     return { value: present.reduce((a, b) => a + b, 0) / present.length, nDetected };
   }
 
-  const api = { createParser, parseText, parseFile, summarise, stripSequence, shortRunName };
+  const api = { createParser, parseText, parseFile, summarise, stripSequence, shortRunName, parseNumber, sniffDelimiter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PrMatrix = api;
 })(typeof self !== 'undefined' ? self : this);

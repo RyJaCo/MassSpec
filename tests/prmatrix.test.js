@@ -46,3 +46,44 @@ test('summarise modes', () => {
 test('reports a clear error without a sequence column', () => {
   assert.throws(() => P.parseText('a\tb\n1\t2\n'), /No peptide sequence column/);
 });
+
+test('reads the demo matrix saved as CSV from a spreadsheet', () => {
+  const tsv = fs.readFileSync(__dirname + '/../examples/demo_pr_matrix.tsv', 'utf8');
+  const quote = (c) => (/[",]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c);
+  const csv = '﻿' + tsv.trim().split('\n').map((l) => l.split('\t').map(quote).join(',')).join('\r\n');
+  const a = P.parseText(tsv);
+  const b = P.parseText(csv);
+  assert.deepStrictEqual(b.runs, a.runs);
+  assert.strictEqual(b.peptides.size, a.peptides.size);
+  for (const [k, v] of a.peptides) assert.deepStrictEqual([...b.peptides.get(k).values], [...v.values]);
+});
+
+test('comma CSV with quoted descriptions and thousands separators', () => {
+  const t = 'Protein.Group,First.Protein.Description,Stripped.Sequence,Precursor.Charge,run_A,run_B\n' +
+    'P1,"Kinase, putative; isoform 2",PEPTIDEK,2,"1,234,567",#N/A\n';
+  const m = P.parseText(t);
+  assert.deepStrictEqual(m.runs.map((r) => r.name), ['run_A', 'run_B']);
+  const v = m.peptides.get('PEPTIDEK').values;
+  assert.strictEqual(v[0], 1234567);
+  assert.ok(Number.isNaN(v[1]));
+});
+
+test('semicolon CSV with decimal commas and a sep= line (European Excel)', () => {
+  const t = 'sep=;\r\nProtein.Group;Stripped.Sequence;Precursor.Charge;S1;S2\r\n' +
+    'P1;PEPTIDEK;2;1234,5;1.234.567,8\r\nP1;LLR;2;2,5E+06;\r\n';
+  const m = P.parseText(t);
+  assert.deepStrictEqual(m.runs.map((r) => r.name), ['S1', 'S2']);
+  assert.deepStrictEqual([...m.peptides.get('PEPTIDEK').values], [1234.5, 1234567.8]);
+  assert.strictEqual(m.peptides.get('LLR').values[0], 2.5e6);
+});
+
+test('header names match regardless of case and punctuation', () => {
+  const m = P.parseText('protein_group,stripped_sequence,run1\nP1,PEPTIDEK,10\n');
+  assert.strictEqual(m.sequenceColumn, 'stripped_sequence');
+  assert.strictEqual(m.peptides.get('PEPTIDEK').values[0], 10);
+});
+
+test('delimiter sniffing ignores separators inside quotes', () => {
+  assert.strictEqual(P.sniffDelimiter('a;"b,c,d";e'), ';');
+  assert.strictEqual(P.sniffDelimiter('a\tb,c\td'), '\t');
+});

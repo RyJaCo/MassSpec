@@ -77,9 +77,9 @@
       <section class="ctl ctl-data">
         <h2 class="ctl-title">5 · Detected peptides</h2>
         <label class="drop" id="drop" for="pr-file">
-          <input id="pr-file" type="file" accept=".tsv,.txt,.csv" hidden>
+          <input id="pr-file" type="file" accept=".tsv,.csv,.txt,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel" hidden>
           <strong>Upload pr_matrix</strong>
-          <span>DIA-NN <code>report.pr_matrix.tsv</code>, or any peptide table with a sequence column and one intensity column per run. Drop a file here or click.</span>
+          <span>DIA-NN <code>report.pr_matrix.tsv</code> or a <code>.csv</code> export (comma, semicolon or tab separated), or any peptide table with a sequence column and one intensity column per run. Drop a file here or click.</span>
         </label>
         <button id="load-demo" class="btn wide" type="button">Load simulated GFP matrix</button>
         <div id="pr-status" class="pr-status" hidden>
