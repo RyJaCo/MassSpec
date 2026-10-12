@@ -84,16 +84,21 @@
         bySeq.get(k).push(p);
       }
       const nProt = norm(protein);
-      const mode = state.runMode === 'mean' || state.runMode === 'median' || state.runMode === 'max'
-        ? state.runMode : Number(state.runMode);
+      const matches = [];
       for (const [seq, entryData] of state.matrix.peptides) {
         const k = norm(seq);
         const theo = bySeq.get(k);
         const pos = theo ? -1 : nProt.indexOf(k);
         if (!theo && pos < 0) continue;
-        matchedRows++;
+        matches.push({ k, theo, pos, entryData });
+      }
+      matchedRows = matches.length;
+      if (state.runMode === 'auto') state.runMode = String(pickSample(entry, matches));
+      const mode = state.runMode === 'mean' || state.runMode === 'median' || state.runMode === 'max'
+        ? state.runMode : Number(state.runMode);
+      for (const { k, theo, pos, entryData } of matches) {
         const s = window.PrMatrix.summarise(entryData.values, mode);
-        const det = { intensity: s.value, nRuns: s.nDetected, precursors: entryData.precursors };
+        const det = { intensity: s.value, nRuns: s.nDetected, precursors: entryData.precursors, values: entryData.values };
         if (theo) { theo.forEach((p) => Object.assign(p, det, { detected: isFinite(s.value) })); continue; }
         // Detected, but not produced by the current enzyme / missed-cleavage settings.
         const start = pos + 1;
@@ -135,7 +140,9 @@
       }
     }
     const pct = (n) => (100 * n) / L;
+    const bySample = state.matrix ? sampleSummary(all, L) : null;
     state.result = {
+      bySample,
       entry, protein, peptides, extras, all, sites, cover, maxI, minI, logMin, logMax, matchedRows,
       nWindow: peptides.filter((p) => p.inWindow).length,
       nWindowDetected: peptides.filter((p) => p.inWindow && p.detected).length,
@@ -145,10 +152,57 @@
     };
   }
 
+  /**
+   * Default sample for a protein when the file has one sample per column: the sample whose
+   * name matches the protein (e.g. "Phytoglobin"), otherwise the one where most of its peptides were seen.
+   */
+  function pickSample(entry, matches) {
+    const runs = state.matrix.runs;
+    const simple = (x) => String(x).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const id = simple(entry.id);
+    const header = simple(entry.header);
+    const byName = runs.findIndex((r) => {
+      const l = simple(r.label || '');
+      return l.length >= 3 && (header.includes(l) || (id.length >= 3 && l.includes(id)));
+    });
+    if (byName >= 0) return byName;
+    let best = 0, bestN = -1;
+    runs.forEach((r, i) => {
+      const n = matches.filter((m) => !isNaN(m.entryData.values[i])).length;
+      if (n > bestN) { best = i; bestN = n; }
+    });
+    return best;
+  }
+
+  // Per-sample detection for the current protein, on one log scale shared by all samples.
+  function sampleSummary(all, L) {
+    const runs = state.matrix.runs;
+    const cols = all.filter((p) => (p.inWindow && !p.extra) || (p.values && p.values.some((v) => !isNaN(v))));
+    let lo = Infinity, hi = -Infinity;
+    for (const p of cols) if (p.values) for (const v of p.values) if (v > 0) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const scale = (v) => (hi > lo ? (Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo)) : 1);
+    const nWindow = all.filter((p) => p.inWindow && !p.extra).length;
+    const rows = runs.map((run, r) => {
+      const covered = new Uint8Array(L);
+      let nWin = 0, nOther = 0, sum = 0;
+      for (const p of cols) {
+        const v = p.values ? p.values[r] : NaN;
+        if (isNaN(v)) continue;
+        if (p.inWindow && !p.extra) nWin++; else nOther++;
+        sum += v;
+        for (let i = p.start - 1; i < p.end; i++) covered[i] = 1;
+      }
+      return { run, index: r, nWin, nOther, sum, coverage: (100 * covered.reduce((a, b) => a + b, 0)) / L };
+    });
+    const maxSum = Math.max(0, ...rows.map((x) => x.sum));
+    return { cols, rows, scale, nWindow, maxSum };
+  }
+
   // ---------- rendering ----------
   function render() {
     analyse();
     renderStats();
+    renderSamples();
     renderMap();
     renderSeq();
     renderAbundance();
@@ -172,7 +226,8 @@
     if (state.matrix) {
       const extra = r.extras.filter((p) => p.detected).length + r.nOutsideDetected;
       html += stat('Detected', r.nWindowDetected + ' / ' + r.nWindow,
-        (r.nWindow ? Math.round((100 * r.nWindowDetected) / r.nWindow) + '% of window' : '') + (extra ? ' · +' + extra + ' other' : ''));
+        (r.nWindow ? Math.round((100 * r.nWindowDetected) / r.nWindow) + '% of window' : '') + (extra ? ' · +' + extra + ' other' : '') +
+        '<br>in ' + esc(currentSampleName()));
       html += stat('Observed coverage', r.coverDet.toFixed(0) + '%', 'vs ' + r.coverWindow.toFixed(0) + '% from in-window peptides at these settings');
       const fold = r.maxI / r.minI;
       html += r.minI < Infinity && r.maxI > 0
@@ -182,6 +237,45 @@
       html += stat('Detected', '–', 'Upload a pr_matrix to compare', true);
     }
     el.innerHTML = html;
+  }
+
+  function currentSampleName() {
+    const m = state.matrix;
+    if (!m) return '';
+    if (state.runMode === 'mean') return 'mean of runs where detected';
+    if (state.runMode === 'median') return 'median of runs where detected';
+    if (state.runMode === 'max') return 'maximum across runs';
+    const run = m.runs[Number(state.runMode)];
+    return run ? run.name : '';
+  }
+
+  function renderSamples() {
+    const panel = $('samples-panel');
+    const r = state.result;
+    if (!r || !state.matrix || state.matrix.runs.length < 2) { panel.hidden = true; return; }
+    panel.hidden = false;
+    $('run').value = state.runMode;
+    const bs = r.bySample;
+    $('sample-current').textContent = currentSampleName();
+    const sel = Number(state.runMode);
+    let html = '<table class="samples"><thead><tr><th class="l">Sample</th><th>Detected</th><th>Coverage</th><th>Total intensity</th>' +
+      '<th class="l">Peptides along the sequence (log intensity, shared scale)</th></tr></thead><tbody>';
+    for (const row of bs.rows) {
+      const on = row.index === sel;
+      html += '<tr class="srow' + (on ? ' on' : '') + (row.nWin + row.nOther ? '' : ' none') + '" data-run="' + row.index + '" tabindex="0" aria-selected="' + on + '">' +
+        '<td class="l sname">' + esc(row.run.name) + '</td>' +
+        '<td>' + row.nWin + ' / ' + bs.nWindow + (row.nOther ? ' <span class="plus">+' + row.nOther + '</span>' : '') + '</td>' +
+        '<td>' + row.coverage.toFixed(0) + '%</td>' +
+        '<td class="tot"><span class="cell-bar" style="width:' + (bs.maxSum ? Math.max(row.sum ? 2 : 0, (60 * row.sum) / bs.maxSum) : 0) + 'px;background:var(--accent)"></span>' + (row.sum ? fmtSci(row.sum) : '–') + '</td>' +
+        '<td class="l"><span class="strip">' + bs.cols.map((p) => {
+          const v = p.values ? p.values[row.index] : NaN;
+          const tip = esc(p.seq) + ' ' + p.start + '–' + p.end + ': ' + (isNaN(v) ? 'not detected' : fmtSci(v));
+          return isNaN(v)
+            ? '<i class="hc nd' + (p.inWindow && !p.extra ? '' : ' x') + '" title="' + tip + '"></i>'
+            : '<i class="hc" style="background:' + ramp(bs.scale(v)) + '" title="' + tip + '"></i>';
+        }).join('') + '</span></td></tr>';
+    }
+    $('samples').innerHTML = html + '</tbody></table>';
   }
 
   function legendHtml(withDetect) {
@@ -499,6 +593,15 @@
     $('fasta').value = text;
     parseProtein();
   }
+  // New protein + one-sample-per-column file: jump to the sample that matches it.
+  let lastProteinId = null;
+  function autoPickOnProteinChange() {
+    const e = state.entries[state.entryIndex];
+    const id = e ? e.id + ':' + e.seq.length : null;
+    if (id !== lastProteinId && samplesAreDistinct()) state.runMode = 'auto';
+    lastProteinId = id;
+  }
+
   function parseProtein() {
     state.entries = parseFasta($('fasta').value);
     const sel = $('entry');
@@ -507,6 +610,7 @@
     state.entryIndex = Math.min(state.entryIndex, Math.max(0, state.entries.length - 1));
     sel.value = String(state.entryIndex);
     updateProteinInfo();
+    autoPickOnProteinChange();
     render();
     save();
   }
@@ -562,17 +666,22 @@
   function setMatrix(m, name) {
     state.matrix = m;
     state.matrixName = name;
-    state.runMode = 'mean';
     $('pr-error').hidden = true;
     $('pr-status').hidden = false;
-    $('run').innerHTML = (m.runs.length > 1
-      ? '<option value="mean">Mean of runs where detected (' + m.runs.length + ' runs)</option>' +
-        '<option value="median">Median of runs where detected</option><option value="max">Maximum across runs</option>'
-      : '') + m.runs.map((r, i) => '<option value="' + i + '">' + esc(r.name) + '</option>').join('');
-    $('run').value = m.runs.length > 1 ? 'mean' : '0';
-    state.runMode = $('run').value;
+    const runOptions = m.runs.map((r, i) => '<option value="' + i + '">' + esc(r.name) + '</option>').join('');
+    $('run').innerHTML = m.runs.length > 1
+      ? '<optgroup label="One sample">' + runOptions + '</optgroup>' +
+        '<optgroup label="Combine runs (replicates only)"><option value="mean">Mean of runs where detected</option>' +
+        '<option value="median">Median of runs where detected</option><option value="max">Maximum across runs</option></optgroup>'
+      : runOptions;
+    // Labelled columns are different samples: show one at a time. Unlabelled runs are treated as replicates.
+    state.runMode = m.runs.length < 2 ? '0' : samplesAreDistinct() ? 'auto' : 'mean';
     render();
   }
+  function samplesAreDistinct() {
+    return !!state.matrix && state.matrix.runs.length > 1 && state.matrix.runs.some((r) => r.label);
+  }
+
   function updateMatrixInfo() {
     const m = state.matrix;
     if (!m) return;
@@ -607,7 +716,7 @@
       ev.target.value = '';
     });
     $('load-gfp').addEventListener('click', () => { state.entryIndex = 0; setFasta(window.DEMO.fasta); });
-    $('entry').addEventListener('change', (ev) => { state.entryIndex = Number(ev.target.value); updateProteinInfo(); render(); });
+    $('entry').addEventListener('change', (ev) => { state.entryIndex = Number(ev.target.value); updateProteinInfo(); autoPickOnProteinChange(); render(); });
     $('missed').addEventListener('input', (ev) => { state.missed = Number(ev.target.value); $('missed-out').value = state.missed; render(); save(); });
     $('len-min').addEventListener('input', () => { syncLength('lo'); render(); save(); });
     $('len-max').addEventListener('input', () => { syncLength('hi'); render(); save(); });
@@ -631,6 +740,17 @@
       try { setMatrix(window.PrMatrix.parseText(window.DEMO.prMatrix), window.DEMO.prMatrixName); } catch (e) { showMatrixError(e); }
     });
     $('run').addEventListener('change', (ev) => { state.runMode = ev.target.value; render(); });
+    const chooseSample = (ev) => {
+      const row = ev.target.closest('tr[data-run]');
+      if (!row) return;
+      state.runMode = row.dataset.run;
+      render();
+      const again = $('samples').querySelector('tr[data-run="' + row.dataset.run + '"]');
+      if (again && ev.type === 'keydown') again.focus();
+    };
+    $('samples').addEventListener('click', chooseSample);
+    $('samples').addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); chooseSample(ev); } });
+    $('combine-runs').addEventListener('click', () => { state.runMode = 'mean'; render(); });
     $('pr-clear').addEventListener('click', () => {
       state.matrix = null; $('pr-status').hidden = true; $('pr-error').hidden = true;
       if (state.filter === 'detected') state.filter = 'all';

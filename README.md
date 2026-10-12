@@ -27,9 +27,11 @@ No build step and no dependencies. Either
 | Missed cleavages | 0–3. |
 | Detectable length | Two-thumb slider (or type values) for the min/max peptide length. |
 | Options | Fixed carbamidomethyl Cys, initiator-Met removal, and I/L equivalence when matching detected peptides. |
-| Detected peptides | Upload a `pr_matrix`. Choose the mean, median or max across runs, or a single run. |
+| Detected peptides | Upload a `pr_matrix`, then pick the sample (one column of the matrix) to show. The mean, median or max across runs is offered for files whose runs are replicates. |
 
 **Views**
+
+- **Detection by sample** (files with more than one run): one row per sample with the number of this protein's peptides detected, coverage, total intensity, and a strip of squares, one per peptide, coloured on a shared log scale. Click a row to show that sample in every other view. When the matrix has a row of sample names above the header, each column is treated as a different sample. The tool then opens on the sample whose name matches the protein (e.g. a FASTA header containing "Phytoglobin" opens the Phytoglobin sample), or failing that the sample where most of its peptides were seen. Without sample names, runs are treated as replicates and averaged.
 
 - **Peptide map**: every peptide drawn along the protein, with cleavage sites. Peptides outside the window are grey; in-window peptides are blue, or, once a matrix is loaded, coloured by log intensity (outlined if not detected). Detected peptides that the current settings would *not* produce (extra missed cleavages, semi-specific ends) appear in a separate track.
 - **Sequence coverage**: the sequence coloured residue by residue, with cut sites in orange.

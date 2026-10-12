@@ -84,7 +84,7 @@
         <button id="load-demo" class="btn wide" type="button">Load simulated GFP matrix</button>
         <div id="pr-status" class="pr-status" hidden>
           <p id="pr-info" class="hint"></p>
-          <label class="field">Intensity to show
+          <label class="field">Sample
             <select id="run"></select>
           </label>
           <button id="pr-clear" class="btn linkish" type="button">Remove matrix</button>
@@ -96,6 +96,17 @@
     <!-- Results -->
     <main class="results">
       <div id="stats" class="stats" aria-live="polite"></div>
+
+      <section class="panel" id="samples-panel" hidden>
+        <div class="panel-head">
+          <h2>Detection by sample</h2>
+          <p class="showing">Showing <b id="sample-current"></b></p>
+          <button id="combine-runs" class="btn small" type="button" title="Only meaningful when the columns are replicates of one sample">Combine all runs</button>
+        </div>
+        <p class="panel-note">Each column of the matrix is one sample. Click a sample to show its peptides in the views below.
+          Each square is one peptide of this protein in sequence order; empty squares were not detected in that sample.</p>
+        <div id="samples" class="table-wrap samples-wrap"></div>
+      </section>
 
       <section class="panel">
         <div class="panel-head">
