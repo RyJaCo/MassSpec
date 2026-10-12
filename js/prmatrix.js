@@ -18,6 +18,7 @@
   const NOT_A_RUN = /^(protein\.group|protein\.ids|protein\.names|genes|first\.protein\.description|modified\.sequence|stripped\.sequence|precursor\.id|precursor\.charge|charge|proteotypic|precursor\.lib\.index|.*\bindex|length|mass|missed cleavages|start position|end position|score|pep|q\.?value|.*\bq\.?value|id|unique.*|count.*|.*\bcount|retention.*|rt|msms.*|ms\/ms.*|.*\bids?)$/i;
   const MISSING = /^(|na|nan|n\/a|#n\/a|#value!|#div\/0!|#num!|null|none|filtered|-)$/i;
   const SNIFF_ROWS = 500;
+  const MAX_PREAMBLE = 20; // lines allowed above the header (titles, sample-label rows)
 
   /** "_(UniMod:1)AC(UniMod:4)DEK2" or "PEP[+16.0]TIDE" -> "ACDEK" / "PEPTIDE". */
   function stripSequence(s) {
@@ -102,25 +103,42 @@
     let rows = 0;
     let skipped = 0;
     let sequenceColumn = null;
+    const preamble = [];
     const peptides = new Map();
 
-    function setupHeader(line) {
-      delim = delim || sniffDelimiter(line);
-      header = splitLine(line, delim).map((h) => h.trim().replace(/^"|"$/g, ''));
-      const simple = header.map(simplify);
+    // Returns false when the line has no sequence column (it may be a label row above the header).
+    function trySetupHeader(line) {
+      const d = delim || sniffDelimiter(line);
+      const cols = splitLine(line, d).map((h) => h.trim().replace(/^"|"$/g, ''));
+      const simple = cols.map(simplify);
       for (const name of SEQUENCE_COLUMNS) {
         const i = simple.indexOf(simplify(name));
-        if (i >= 0) { seqIdx = i; sequenceColumn = header[i]; break; }
+        if (i >= 0) { seqIdx = i; sequenceColumn = cols[i]; break; }
       }
-      if (seqIdx < 0) {
-        throw new Error('No peptide sequence column found. Expected one of: ' +
-          SEQUENCE_COLUMNS.join(', ') + '. Columns in this file: ' +
-          header.slice(0, 12).join(', ') + (header.length > 12 ? ', …' : '') + '.');
-      }
+      if (seqIdx < 0) return false;
+      delim = d;
+      header = cols;
       for (const name of PROTEIN_COLUMNS) {
         const i = simple.indexOf(simplify(name));
         if (i >= 0) { protIdx = i; break; }
       }
+      return true;
+    }
+
+    function noHeaderError() {
+      const first = splitLine(preamble[0] || '', delim || sniffDelimiter(preamble[0] || ''))
+        .map((h) => h.trim()).filter(Boolean);
+      return new Error('No peptide sequence column found in the first ' + preamble.length + ' lines. Expected one of: ' +
+        SEQUENCE_COLUMNS.join(', ') + '.' + (first.length ? ' The first line has: ' +
+        first.slice(0, 12).join(', ') + (first.length > 12 ? ', …' : '') + '.' : ''));
+    }
+
+    // Text written above a column in rows before the header, e.g. a sample-name row added in Excel.
+    function columnLabel(i) {
+      return preamble
+        .map((l) => (splitLine(l, delim)[i] || '').trim().replace(/^"|"$/g, ''))
+        .filter(Boolean)
+        .join(' ');
     }
 
     // Decide which columns hold per-run quantities by looking at the first rows.
@@ -128,14 +146,16 @@
       const sample = buffer.map((l) => splitLine(l, delim));
       // Semicolon files from European-locale spreadsheets use decimal commas.
       decimalComma = delim === ';' && sample.some((cells) => cells.some((c) => /^\s*-?[\d.\s]*\d,\d+\s*$/.test(c)));
-      // Numeric, or empty throughout the sample (a run with few identifications).
+      // Numeric, or (after the sequence column) empty throughout the sample: a run with few identifications.
       const isNumericCol = (i) => {
+        let seen = 0;
         for (const cells of sample) {
           const v = (cells[i] || '').trim();
           if (MISSING.test(v)) continue;
           if (!isFinite(parseNumber(v, decimalComma))) return false;
+          seen++;
         }
-        return true;
+        return seen > 0 || i > seqIdx;
       };
       const intensityLike = header
         .map((h, i) => [h, i])
@@ -151,7 +171,11 @@
           .filter((i) => i !== seqIdx && !NOT_A_RUN.test(header[i]) && isNumericCol(i));
       }
       runIdx = candidates;
-      runs = runIdx.map((i) => ({ column: header[i], name: shortRunName(header[i]) }));
+      runs = runIdx.map((i) => {
+        const label = columnLabel(i);
+        const short = shortRunName(header[i]);
+        return { column: header[i], name: label ? label + ' (' + short + ')' : short, label };
+      });
       if (!runs.length) {
         throw new Error('Found the sequence column "' + sequenceColumn +
           '" but no numeric intensity columns (one per run).');
@@ -186,7 +210,10 @@
           // Excel sometimes writes a "sep=;" line before the header.
           const sep = line.match(/^"?sep=(.)"?\s*$/i);
           if (sep) { delim = sep[1]; return; }
-          setupHeader(line);
+          if (!trySetupHeader(line)) {
+            preamble.push(line);
+            if (preamble.length >= MAX_PREAMBLE) throw noHeaderError();
+          }
           return;
         }
         if (!line.trim()) return;
@@ -198,7 +225,7 @@
         consume(line);
       },
       finish() {
-        if (header === null) throw new Error('The file is empty.');
+        if (header === null) throw preamble.length ? noHeaderError() : new Error('The file is empty.');
         if (buffer) { chooseRunColumns(); buffer.forEach(consume); buffer = null; }
         return { runs, peptides, sequenceColumn, rows, skipped };
       },

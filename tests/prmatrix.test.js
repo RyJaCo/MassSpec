@@ -87,3 +87,14 @@ test('delimiter sniffing ignores separators inside quotes', () => {
   assert.strictEqual(P.sniffDelimiter('a;"b,c,d";e'), ';');
   assert.strictEqual(P.sniffDelimiter('a\tb,c\td'), '\t');
 });
+
+test('skips a sample-label row above the header and uses it for run names', () => {
+  const t = ',,,,Control,Treated\r\n' +
+    'extraProteins,Protein.Group,Stripped.Sequence,Precursor.Charge,C:\\data\\s01.raw,C:\\data\\s02.raw\r\n' +
+    'x,P1,PEPTIDEK,2,3.70E+06,\r\n' +
+    ',P2,LLR,2,,455816\r\n';
+  const m = P.parseText(t);
+  assert.deepStrictEqual(m.runs.map((r) => r.name), ['Control (s01)', 'Treated (s02)']);
+  assert.strictEqual(m.peptides.get('PEPTIDEK').values[0], 3.7e6);
+  assert.strictEqual(m.peptides.get('LLR').values[1], 455816);
+});

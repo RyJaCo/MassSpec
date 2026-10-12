@@ -57,6 +57,7 @@ Other wide peptide tables also work if they have a sequence column (`Sequence`, 
 - thousands separators (`1,234,567`)
 - European-locale files that use `;` with decimal commas (`1234,5`) and a leading `sep=;` line
 - Excel error cells (`#N/A`), which count as missing
+- extra rows above the header. A row of sample names typed above the run columns is used to label the runs, e.g. `NutriGFP (milla043506)`
 - column names in any case or punctuation (`stripped_sequence` matches `Stripped.Sequence`)
 
 Large files are streamed.
