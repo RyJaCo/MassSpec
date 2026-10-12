@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Peptide Detectability Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="page">
+  <header class="masthead">
+    <div>
+      <h1>Peptide Detectability Explorer</h1>
+      <p class="lede">Digest a protein in silico, see which peptides fall inside the LC-MS detection window,
+        then overlay a DIA-NN <code>pr_matrix</code> to see which ones were actually measured, and how unequally.</p>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- Controls -->
+    <aside class="controls" aria-label="Digest settings">
+      <section class="ctl">
+        <h2 class="ctl-title">1 · Protein sequence</h2>
+        <label class="sr-only" for="fasta">FASTA or plain amino-acid sequence</label>
+        <textarea id="fasta" spellcheck="false" rows="7" placeholder=">sp|P12345|NAME&#10;MKTAYIAKQR..."></textarea>
+        <div class="row">
+          <label class="btn" for="fasta-file">Open FASTA…</label>
+          <input id="fasta-file" type="file" accept=".fasta,.fa,.faa,.txt" hidden>
+          <button id="load-gfp" class="btn" type="button">GFP example</button>
+        </div>
+        <label class="field" id="entry-wrap" hidden>Entry
+          <select id="entry"></select>
+        </label>
+        <p id="protein-info" class="hint"></p>
+      </section>
+
+      <section class="ctl">
+        <h2 class="ctl-title">2 · Enzyme</h2>
+        <div id="enzymes" class="chips" role="group" aria-label="Enzymes"></div>
+        <p class="hint">Pick more than one for a combined digest; cut sites are pooled.</p>
+      </section>
+
+      <section class="ctl">
+        <h2 class="ctl-title">3 · Missed cleavages</h2>
+        <div class="slider-row">
+          <input id="missed" type="range" min="0" max="3" step="1" value="0" aria-label="Maximum missed cleavages">
+          <output id="missed-out" for="missed">0</output>
+        </div>
+      </section>
+
+      <section class="ctl">
+        <h2 class="ctl-title">4 · Detectable length</h2>
+        <div class="dual" id="len-dual">
+          <div class="dual-track"><div class="dual-fill" id="len-fill"></div></div>
+          <input id="len-min" type="range" min="1" max="60" value="6" aria-label="Minimum peptide length">
+          <input id="len-max" type="range" min="1" max="60" value="30" aria-label="Maximum peptide length">
+        </div>
+        <div class="row len-nums">
+          <label class="num">min <input id="len-min-n" type="number" min="1" max="60" value="6"></label>
+          <span class="dash">–</span>
+          <label class="num">max <input id="len-max-n" type="number" min="1" max="60" value="30"></label>
+          <span class="unit">residues</span>
+        </div>
+        <p class="hint">Shorter peptides are rarely unique and often lost; longer ones ionise and fragment poorly.</p>
+      </section>
+
+      <section class="ctl">
+        <h2 class="ctl-title">Options</h2>
+        <label class="check"><input id="opt-cam" type="checkbox" checked> Carbamidomethyl Cys (+57.021)</label>
+        <label class="check"><input id="opt-met" type="checkbox" checked> Allow N-terminal Met removal</label>
+        <label class="check"><input id="opt-il" type="checkbox" checked> Treat I and L as identical when matching</label>
+      </section>
+
+      <section class="ctl ctl-data">
+        <h2 class="ctl-title">5 · Detected peptides</h2>
+        <label class="drop" id="drop" for="pr-file">
+          <input id="pr-file" type="file" accept=".tsv,.txt,.csv" hidden>
+          <strong>Upload pr_matrix</strong>
+          <span>DIA-NN <code>report.pr_matrix.tsv</code>, or any peptide table with a sequence column and one intensity column per run. Drop a file here or click.</span>
+        </label>
+        <button id="load-demo" class="btn wide" type="button">Load simulated GFP matrix</button>
+        <div id="pr-status" class="pr-status" hidden>
+          <p id="pr-info" class="hint"></p>
+          <label class="field">Intensity to show
+            <select id="run"></select>
+          </label>
+          <button id="pr-clear" class="btn linkish" type="button">Remove matrix</button>
+        </div>
+        <p id="pr-error" class="error" role="alert" hidden></p>
+      </section>
+    </aside>
+
+    <!-- Results -->
+    <main class="results">
+      <div id="stats" class="stats" aria-live="polite"></div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Peptide map</h2>
+          <div id="map-legend" class="legend"></div>
+        </div>
+        <div id="map" class="map-wrap"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Sequence coverage</h2>
+          <div id="seq-legend" class="legend"></div>
+        </div>
+        <div id="seqmap" class="seqmap"></div>
+      </section>
+
+      <section class="panel" id="abundance-panel">
+        <div class="panel-head">
+          <h2>Peptide abundance</h2>
+          <div class="seg" role="group" aria-label="Scale">
+            <button type="button" id="scale-log" class="on">Log10</button>
+            <button type="button" id="scale-lin">Linear</button>
+          </div>
+          <div class="seg" role="group" aria-label="Order">
+            <button type="button" id="sort-pos" class="on">By position</button>
+            <button type="button" id="sort-int">By intensity</button>
+          </div>
+        </div>
+        <p class="panel-note" id="abundance-note"></p>
+        <div id="abundance"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Peptides</h2>
+          <div class="seg" role="group" aria-label="Filter">
+            <button type="button" data-filter="all" class="on">All</button>
+            <button type="button" data-filter="window">In window</button>
+            <button type="button" data-filter="detected">Detected</button>
+          </div>
+          <div class="row">
+            <button id="copy-tsv" class="btn small" type="button">Copy</button>
+            <button id="dl-csv" class="btn small" type="button">Download CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table id="table"></table></div>
+      </section>
+
+      <section class="panel notes">
+        <h2>Why equimolar peptides are not seen equally</h2>
+        <p>Every peptide cut from one protein molecule is present in the same molar amount. The signal an
+          instrument records for each one still differs by orders of magnitude, because the measured
+          intensity depends on the peptide as well as on how much of it there is:</p>
+        <ul>
+          <li><b>Ionisation efficiency.</b> Basic, hydrophobic peptides pick up protons and reach the gas phase
+            more easily in electrospray than acidic, hydrophilic ones.</li>
+          <li><b>Chromatography.</b> Very hydrophilic peptides wash through the trap column; very hydrophobic ones
+            elute late, broadly, or not at all. Co-eluting peptides compete for charge (ion suppression).</li>
+          <li><b>Charge state and modifications.</b> Signal is split across 2+, 3+ and modified forms (Met oxidation,
+            deamidation), so each precursor carries only part of the total.</li>
+          <li><b>Incomplete digestion.</b> Missed cleavages divert material into longer peptides.</li>
+          <li><b>Fragmentation and identification.</b> A peptide only counts as detected if its fragments score
+            well enough to pass the FDR threshold, and very short peptides are often not unique to one protein.</li>
+        </ul>
+        <p>This is why label-free protein quantification compares the <em>same</em> peptide across samples, and
+          never compares different peptides with each other as if they were equimolar.</p>
+      </section>
+    </main>
+  </div>
+  <footer class="foot">Runs entirely in your browser; uploaded files are not sent anywhere.
+    Masses are monoisotopic. The demo matrix is simulated for teaching.</footer>
+</div>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+
+<script src="js/digest.js"></script>
+<script src="js/prmatrix.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
