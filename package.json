@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "demo": "node tools/make-demo.js",
-    "stats-demo": "node tools/make-stats-demo.js"
+    "stats-demo": "node tools/make-stats-demo.js",
+    "artifact": "node tools/build-stats-artifact.js"
   },
   "license": "MIT"
 }

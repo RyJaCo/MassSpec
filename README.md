@@ -122,6 +122,8 @@ Jonckheere-Terpstra and Page. Results are tested against SciPy, statsmodels and 
 Where the best method needs a model the page does not fit (limma, negative binomial or logistic regression, mixed models,
 ANCOVA), the page says so, shows the R / Python code, and runs the closest test it can.
 
+To publish it as a single-file Claude artifact, run `npm run artifact`; it writes `dist/stats-advisor.html` with the CSS and scripts inlined.
+
 The example tables (`examples/stats_demo_*.csv`) are **simulated**; regenerate them with `npm run stats-demo`.
 
 ## Development
@@ -148,5 +150,6 @@ js/stats-app.js     Stats Test Advisor UI and charts
 js/stats-demo.js    generated example tables
 tools/make-demo.js  demo generator
 tools/make-stats-demo.js  stats example generator
+tools/build-stats-artifact.js  bundles the Stats Test Advisor into one file for a Claude artifact
 tests/              unit tests
 ```
