@@ -1,3 +1,10 @@
+# MassSpec teaching tools
+
+Two self-contained browser tools (no build step, no dependencies, nothing uploaded):
+
+- **[Peptide Detectability Explorer](index.html)**: in-silico digestion and DIA-NN `pr_matrix` overlay (below).
+- **[Stats Test Advisor](stats.html)**: which statistical test to use, and why ([details](#stats-test-advisor)).
+
 # Peptide Detectability Explorer
 
 A small, self-contained web tool for teaching bottom-up proteomics. It takes a protein sequence and
@@ -70,11 +77,59 @@ Large files are streamed.
 - The detection window is length only. Real detectability also depends on m/z range, hydrophobicity, charge and uniqueness, and that is the point the uploaded data makes.
 - Masses are monoisotopic, with optional fixed carbamidomethylation. Peptides containing B, Z or X have no mass.
 
+# Stats Test Advisor
+
+`stats.html` helps you choose a statistical test, and explains the choice.
+
+**Choose a test.** A question guide with drop-down menus. Questions appear only when they apply to your earlier answers:
+
+- what you want to find out (compare groups, compare to a fixed value, relationship, association, agreement, survival)
+- the kind of measurement (continuous, intensity/abundance, ratio or fold change, proportion, count, ordinal, yes/no)
+- how ratios were made (each divided by its own control, by the control mean, or measured in each sample)
+- number of factors and groups, independent vs paired / repeated measures / mixed
+- technical vs biological replicates, one outcome vs many (omics), covariates, sample size
+- normality, whether a transformation helps, equal spread
+- which comparisons matter (all pairs, against a control, planned, a trend, or only the overall test)
+
+The result gives the recommended test, the transformation to apply first, the post hoc test, a numbered list of reasons,
+warnings (pseudoreplication, n too small for rank tests, ratios fixed at 1, multiple testing), assumptions to check,
+alternatives, the effect size to report, R and Python code, and a reporting sentence. A quick-reference table and a list of
+common mistakes sit below.
+
+**Analyse my data.** Open a CSV / TSV file (or one of the two simulated examples) and pick columns:
+
+| Analysis | Columns |
+|---|---|
+| Compare groups | one or more value columns, a group column, optional subject ID (same ID in several groups makes the design paired; repeated within a group means technical replicates, which are averaged), optional second factor, optional control group |
+| Compare columns | wide format, one column per group; tick “each row is the same subject” for paired data |
+| One column vs a reference | e.g. fold change against 1 |
+| Relationship | X and Y columns |
+| Association | two categorical columns, optional subject ID |
+
+For each value column the analyser:
+
+1. guesses the measurement type from the column name and values (you can override it);
+2. tries the transformations that suit that type (none, log₂, log₂(x+1), √x, 1/x, logit, Box-Cox), checking the residuals with Shapiro-Wilk, the spreads with Brown-Forsythe, the skewness and the SD ratio. The scale the data type calls for (log for intensities and ratios) is kept unless the data clearly contradict it, because picking whichever transform gives the best p-value is a form of data dredging. Click a row to use a different scale;
+3. fills in the question guide's answers from the data and runs the same decision rules;
+4. runs the recommended test and post hoc test, plus the parametric / rank-based counterpart as a sensitivity check, and shows a strip plot, a normal Q–Q plot of the residuals, and descriptive statistics (with geometric means on the log scale);
+5. with several value columns, lists one test per column with Benjamini-Hochberg q-values.
+
+Tests implemented in the browser (`js/statlib.js`): Shapiro-Wilk, Brown-Forsythe, Student / Welch / paired / one-sample t,
+Mann-Whitney U (exact when there are no ties), Wilcoxon signed-rank, one-way and Welch ANOVA, Kruskal-Wallis, repeated-measures
+ANOVA with Greenhouse-Geisser, Friedman, two-way ANOVA (Type III), Pearson, Spearman, chi-square, Fisher's exact,
+and the post hoc tests Tukey-Kramer, Games-Howell, Dunnett, Dunn, Holm-adjusted pairwise tests, simple effects, linear trend,
+Jonckheere-Terpstra and Page. Results are tested against SciPy, statsmodels and pingouin (`tests/statlib.test.js`).
+Where the best method needs a model the page does not fit (limma, negative binomial or logistic regression, mixed models,
+ANCOVA), the page says so, shows the R / Python code, and runs the closest test it can.
+
+The example tables (`examples/stats_demo_*.csv`) are **simulated**; regenerate them with `npm run stats-demo`.
+
 ## Development
 
 ```
 npm test        # node --test, no dependencies
 npm run demo    # regenerate the simulated GFP matrix and js/demo.js
+npm run stats-demo  # regenerate the simulated stats example tables and js/stats-demo.js
 ```
 
 ```
@@ -84,6 +139,14 @@ js/digest.js        enzymes, digestion, masses, FASTA parsing (also runs in Node
 js/prmatrix.js      pr_matrix / peptide table reader (also runs in Node)
 js/app.js           UI and rendering
 js/demo.js          generated demo data
+stats.html          Stats Test Advisor page
+css/stats.css       its extra styles
+js/statlib.js       distributions, tests, post hoc tests, transformations (also runs in Node)
+js/advisor.js       question tree and decision rules (also runs in Node)
+js/analyse.js       table reader, transformation choice, runs the tests (also runs in Node)
+js/stats-app.js     Stats Test Advisor UI and charts
+js/stats-demo.js    generated example tables
 tools/make-demo.js  demo generator
+tools/make-stats-demo.js  stats example generator
 tests/              unit tests
 ```

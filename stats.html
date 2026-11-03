@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stats Test Advisor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/stats.css">
+</head>
+<body>
+<div class="page">
+  <header class="masthead">
+    <nav class="sitenav" aria-label="Tools"><a href="index.html">Peptide Detectability Explorer</a><span aria-current="page">Stats Test Advisor</span></nav>
+    <h1>Stats Test Advisor</h1>
+    <p class="lede">Answer a few questions about your experiment to find the right test, the right post hoc test and the
+      reasons for both. Or load a CSV / TSV table and let the data answer the questions: the tool checks normality and
+      spread, picks a transformation, and runs the tests.</p>
+    <div class="seg tabs" role="tablist" aria-label="Mode">
+      <button type="button" role="tab" id="tab-guide" aria-controls="pane-guide" aria-selected="true" class="on">Choose a test</button>
+      <button type="button" role="tab" id="tab-data" aria-controls="pane-data" aria-selected="false">Analyse my data</button>
+    </div>
+  </header>
+
+  <!-- ================================================================ question guide -->
+  <div id="pane-guide" role="tabpanel" aria-labelledby="tab-guide" class="layout">
+    <aside class="controls" aria-label="Questions">
+      <div id="questions"></div>
+      <section class="ctl">
+        <div class="row">
+          <button id="reset" class="btn small" type="button">Start again</button>
+          <span id="progress" class="hint"></span>
+        </div>
+      </section>
+    </aside>
+    <main class="results" id="guide-results" aria-live="polite"></main>
+  </div>
+
+  <!-- ================================================================ data analyser -->
+  <div id="pane-data" role="tabpanel" aria-labelledby="tab-data" class="layout" hidden>
+    <aside class="controls" aria-label="Data and columns">
+      <section class="ctl">
+        <h2 class="ctl-title">1 · Data table</h2>
+        <label class="drop" id="drop" for="file">
+          <strong>Open a CSV or TSV file</strong>
+          <span>or drop it here. One row per measurement, a header row with column names.</span>
+        </label>
+        <input id="file" type="file" accept=".csv,.tsv,.txt,.tab" hidden>
+        <div class="row">
+          <button class="btn small" type="button" id="ex-long">Example: mouse experiment</button>
+          <button class="btn small" type="button" id="ex-wide">Example: patients over time</button>
+        </div>
+        <p id="file-info" class="hint"></p>
+        <p id="file-error" class="error" hidden></p>
+      </section>
+      <div id="data-controls" hidden>
+        <section class="ctl">
+          <h2 class="ctl-title">2 · What do you want to test?</h2>
+          <label class="field">Analysis
+            <select id="analysis">
+              <option value="long">Compare groups (a value column + a group column)</option>
+              <option value="wide">Compare columns (each column is a group)</option>
+              <option value="onesample">One column against a reference value</option>
+              <option value="relate">Relationship between two columns</option>
+              <option value="assoc">Association between two categorical columns</option>
+            </select>
+          </label>
+        </section>
+        <section class="ctl" id="cols"></section>
+        <section class="ctl" id="opts"></section>
+      </div>
+    </aside>
+    <main class="results" id="data-results" aria-live="polite">
+      <section class="panel">
+        <div class="panel-head"><h2>Load a table to start</h2></div>
+        <div class="notes">
+          <p>The analyser expects <b>tidy data</b>: one row per measurement, one column per variable. For example:</p>
+          <pre class="code">Sample,Mouse,Treatment,Genotype,Intensity
+S001,M01,Vehicle,WT,3359143
+S002,M01,Vehicle,WT,3274759
+S003,M02,High dose,KO,5189015</pre>
+          <ul>
+            <li>Pick the <b>value</b> column(s), the <b>group</b> column and, if the same subject appears in several groups, the <b>subject</b> column (that makes it a paired design).</li>
+            <li>Rows that share a subject <i>and</i> group are treated as technical replicates and averaged, so n counts biological replicates.</li>
+            <li>A table with one column per condition (wide format) works too: choose “Compare columns”.</li>
+          </ul>
+          <p>Files are read in your browser and never uploaded.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="foot">Runs entirely in your browser. Test p-values are checked against SciPy and statsmodels; the advice
+    is a guide, not a substitute for thinking about your design. The example tables are simulated.</footer>
+</div>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+
+<script src="js/statlib.js"></script>
+<script src="js/advisor.js"></script>
+<script src="js/analyse.js"></script>
+<script src="js/stats-demo.js"></script>
+<script src="js/stats-app.js"></script>
+</body>
+</html>

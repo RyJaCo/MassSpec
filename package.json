@@ -5,7 +5,8 @@
   "description": "Teaching tool: in-silico digestion, LC-MS detection window and DIA-NN pr_matrix overlay.",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "demo": "node tools/make-demo.js"
+    "demo": "node tools/make-demo.js",
+    "stats-demo": "node tools/make-stats-demo.js"
   },
   "license": "MIT"
 }
